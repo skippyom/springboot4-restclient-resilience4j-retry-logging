@@ -2,6 +2,7 @@ package com.example.resilience.core;
 
 import com.example.resilience.client.NonRetryableExternalApiException;
 import com.example.resilience.client.RetryableExternalApiException;
+import com.example.resilience.support.LogCapture;
 import com.example.resilience.support.TestSupport;
 import io.github.resilience4j.retry.RetryRegistry;
 import okhttp3.mockwebserver.MockResponse;
@@ -155,5 +156,26 @@ class ResilientRestClientExecutorRetryIT {
 
         // 3 waits after 4 attempts: 10ms + 20ms + 40ms = 70ms minimum.
         assertThat(elapsedMs).isGreaterThanOrEqualTo(70);
+    }
+
+    @Test
+    void debugLogsDoNotContainSecretQueryValues() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("{\"ok\":true}"));
+        ApiRequest request = ApiRequest.builder("/orders/{orderId}")
+                .uriVariable("orderId", "O5")
+                .queryParam("include", "customer")
+                .queryParam("apiKey", "super-secret")
+                .build();
+
+        try (LogCapture logs = new LogCapture(ResilientRestClientExecutor.class.getName())) {
+            ResponseEntity<String> response = executor.executeGet(restClient, RETRY, "test-api", request);
+            assertThat(response.getStatusCode().value()).isEqualTo(200);
+            assertThat(logs.any("include=customer")).isTrue();
+            assertThat(logs.any("apiKey=***")).isTrue();
+            assertThat(logs.any("super-secret")).isFalse();
+        }
+
+        RecordedRequest recorded = server.takeRequest();
+        assertThat(recorded.getPath()).contains("apiKey=super-secret");
     }
 }

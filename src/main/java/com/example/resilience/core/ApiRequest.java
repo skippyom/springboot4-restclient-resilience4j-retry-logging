@@ -4,8 +4,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.util.DefaultUriBuilderFactory;
 import org.springframework.web.util.UriBuilder;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import java.lang.reflect.Array;
 import java.net.URI;
@@ -25,6 +25,7 @@ import java.util.regex.Pattern;
 public final class ApiRequest {
 
     private static final Pattern URI_SCHEME = Pattern.compile("^[a-zA-Z][a-zA-Z0-9+.-]*:.*");
+    private static final Pattern SECRET_QUERY_NAME = Pattern.compile("(?i).*(?:token|secret|password|api[-_]?key).*");
 
     private final String uriTemplate;
     private final Map<String, Object> uriVariables;
@@ -95,7 +96,7 @@ public final class ApiRequest {
                 if (!first) {
                     builder.append('&');
                 }
-                builder.append(entry.getKey()).append('=').append(value);
+                builder.append(entry.getKey()).append('=').append(logQueryValue(entry.getKey(), value));
                 first = false;
             }
         }
@@ -103,12 +104,16 @@ public final class ApiRequest {
     }
 
     private URI buildAbsoluteUri() {
-        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(uriTemplate);
+        // Use the same value-encoding mode as RestClient. UriComponentsBuilder.buildAndExpand().encode()
+        // leaves reserved characters such as '/' inside a path variable, which splits the path.
+        DefaultUriBuilderFactory factory = new DefaultUriBuilderFactory();
+        factory.setEncodingMode(DefaultUriBuilderFactory.EncodingMode.TEMPLATE_AND_VALUES);
+        UriBuilder builder = factory.uriString(uriTemplate);
         addQueryParams(builder);
         if (uriVariables.isEmpty()) {
-            return builder.build().encode().toUri();
+            return builder.build();
         }
-        return builder.buildAndExpand(uriVariables).encode().toUri();
+        return builder.build(uriVariables);
     }
 
     private UriBuilder applyRelativeTemplate(UriBuilder builder) {
@@ -135,6 +140,38 @@ public final class ApiRequest {
             return builder.build();
         }
         return builder.build(uriVariables);
+    }
+
+    private static String logQueryValue(String name, Object value) {
+        return isSecretQueryName(name) ? "***" : String.valueOf(value);
+    }
+
+    static String redactQuerySecrets(String uri) {
+        if (uri == null || !uri.contains("?")) {
+            return uri;
+        }
+        int queryStart = uri.indexOf('?');
+        StringBuilder out = new StringBuilder(uri.substring(0, queryStart + 1));
+        String[] pairs = uri.substring(queryStart + 1).split("&", -1);
+        for (int index = 0; index < pairs.length; index++) {
+            if (index > 0) {
+                out.append('&');
+            }
+            String pair = pairs[index];
+            int eq = pair.indexOf('=');
+            if (eq < 0) {
+                out.append(pair);
+                continue;
+            }
+            String name = pair.substring(0, eq);
+            String value = pair.substring(eq + 1);
+            out.append(name).append('=').append(isSecretQueryName(name) ? "***" : value);
+        }
+        return out.toString();
+    }
+
+    private static boolean isSecretQueryName(String name) {
+        return name != null && SECRET_QUERY_NAME.matcher(name).matches();
     }
 
     private static void appendQuerySeparator(StringBuilder builder) {

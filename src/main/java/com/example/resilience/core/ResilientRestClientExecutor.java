@@ -134,7 +134,7 @@ public class ResilientRestClientExecutor {
                         log.debug(
                                 "external_call_attempt_response dependency={} correlationId={} retryName={} attempt={} method={} uri={} status={} durationMs={} body={}",
                                 dependencyName, correlationId, retryName, attempt,
-                                clientRequest.getMethod(), clientRequest.getURI(),
+                                clientRequest.getMethod(), ApiRequest.redactQuerySecrets(String.valueOf(clientRequest.getURI())),
                                 statusCode.value(), durationMs,
                                 ResponseBodySanitizer.sanitize(responseBody)
                         );

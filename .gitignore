@@ -1,5 +1,7 @@
 target/
 .claude/
+# Already-tracked worktree gitlinks are not dropped by the line above. Keep this explicit.
+.claude/worktrees/
 .idea/
 .vscode/
 *.iml
